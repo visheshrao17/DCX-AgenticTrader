@@ -1,0 +1,44 @@
+# =============================================================================
+# DCX-AgenticTrader — Dependencies
+# =============================================================================
+
+# LLM & Agent Framework
+langgraph>=0.4.0
+langchain-core>=0.3.0
+langchain-google-genai>=2.1.0
+langchain-community>=0.3.0
+
+# CoinDCX API
+requests>=2.31.0
+python-socketio[client]>=5.11.0
+websocket-client>=1.7.0
+
+# Data & Technical Analysis
+pandas>=2.2.0
+numpy>=1.26.0
+
+# Sentiment & NLP
+yfinance>=0.2.40
+feedparser>=6.0.0
+
+# RAG & Memory
+chromadb>=0.5.0
+langchain-chroma>=0.2.0
+
+# Dashboard
+streamlit>=1.40.0
+plotly>=5.24.0
+
+# Configuration & Validation
+python-dotenv>=1.0.0
+pydantic>=2.9.0
+pydantic-settings>=2.5.0
+
+# Logging & CLI
+loguru>=0.7.0
+rich>=13.9.0
+click>=8.1.0
+
+# Utilities
+aiohttp>=3.10.0
+tenacity>=9.0.0
