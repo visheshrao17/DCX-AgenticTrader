@@ -1,4 +1,4 @@
-# AgenticTrader
+# DCX-AgenticTrader
 
 An autonomous, multi-agent trading system engineered for the Indian crypto market using LangGraph, Google Gemini, and the CoinDCX API. This project serves as a comprehensive demonstration of applied AI in financial technology, showcasing complex state management, tool usage, and human-in-the-loop compliance checks.
 
