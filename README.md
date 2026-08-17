@@ -65,10 +65,9 @@ graph TD
     end
 
     A --> B
-    A --> C
-    A --> D
+    B --> C
+    B --> D
     
-    B --> E
     C --> E
     D --> E
     
