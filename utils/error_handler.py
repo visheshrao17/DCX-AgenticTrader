@@ -76,6 +76,30 @@ class PaperTradingError(DCXBaseError):
     pass
 
 
+class LLMError(DCXBaseError):
+    """Raised when an LLM API call fails (network, auth, unexpected response)."""
+
+    def __init__(self, message: str, model: str = "", details: Optional[dict] = None):
+        self.model = model
+        super().__init__(message, details)
+
+
+class LLMParseError(LLMError):
+    """Raised when LLM returns valid response but JSON/Pydantic parsing fails."""
+
+    def __init__(self, message: str, raw_output: str = "", model: str = "", details: Optional[dict] = None):
+        self.raw_output = raw_output
+        super().__init__(message, model=model, details=details)
+
+
+class LLMRateLimitError(LLMError):
+    """Raised when the LLM provider returns 429 (rate limited)."""
+
+    def __init__(self, message: str, retry_after: Optional[float] = None, model: str = "", details: Optional[dict] = None):
+        self.retry_after = retry_after
+        super().__init__(message, model=model, details=details)
+
+
 # =============================================================================
 # Retry Decorator with Exponential Backoff
 # =============================================================================

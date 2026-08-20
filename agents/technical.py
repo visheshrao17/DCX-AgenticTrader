@@ -9,13 +9,24 @@ import json
 from typing import Dict, Any
 
 import pandas as pd
+from pydantic import BaseModel, Field
 
 from tools.technical_indicators import generate_signal_summary
 from agents.market_data import candles_to_dataframe
 from graph.state import TradingState
 from utils.logger import get_agent_logger
+from config.settings import get_settings
+from tools.llm_client import call_llm
+from utils.error_handler import LLMError
 
 log = get_agent_logger("technical")
+
+
+class TechnicalLLMAnalysis(BaseModel):
+    """Structured output expected from the Technical Analyst LLM."""
+    direction: str = Field(description="The primary trend direction: BULLISH, BEARISH, or NEUTRAL.")
+    confidence: float = Field(description="Confidence score between 0.0 and 1.0.")
+    rationale: str = Field(description="A short natural language rationale explaining the technical picture based on the indicators.")
 
 
 def technical_agent(state: TradingState) -> Dict[str, Any]:
@@ -130,9 +141,49 @@ def technical_agent(state: TradingState) -> Dict[str, Any]:
             tf: {"signal": s.get("composite_signal"), "score": s.get("signal_score")}
             for tf, s in signals_by_tf.items()
         },
+        "llm_used": False,
     }
 
-    log.info(f"Final signal: {composite} (score={final_score:.3f}, conf={result['confidence']})")
+    # =========================================================================
+    # LLM Synthesis
+    # =========================================================================
+    settings = get_settings()
+    if settings.use_llm_technical:
+        try:
+            system_prompt = "You are an expert Technical Analyst. Synthesize the provided multi-timeframe indicator data into a clear technical narrative."
+            user_prompt = f"Analyze the following technical indicators for {pair}:\n{json.dumps(signals_by_tf, indent=2)}\n\nProvide the overall direction, confidence, and a brief rationale."
+            
+            llm_decision = call_llm(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response_model=TechnicalLLMAnalysis,
+                agent_name="technical",
+                temperature=0.2,
+            )
+            
+            # Map LLM direction to our composite signal
+            llm_direction = llm_decision.direction.upper()
+            if llm_direction in ["BULLISH", "BUY", "STRONG_BUY"]:
+                result["composite_signal"] = "BUY" if llm_decision.confidence < 0.7 else "STRONG_BUY"
+                result["signal_score"] = llm_decision.confidence
+            elif llm_direction in ["BEARISH", "SELL", "STRONG_SELL"]:
+                result["composite_signal"] = "SELL" if llm_decision.confidence < 0.7 else "STRONG_SELL"
+                result["signal_score"] = -llm_decision.confidence
+            else:
+                result["composite_signal"] = "NEUTRAL"
+                result["signal_score"] = 0.0
+
+            result["confidence"] = llm_decision.confidence
+            result["reasoning"] = f"[LLM] {llm_decision.rationale} (Fallback: {reasoning})"
+            result["llm_used"] = True
+            log.info(f"LLM Technical Analysis generated successfully: {result['composite_signal']}")
+
+        except LLMError as e:
+            log.warning(f"Technical LLM failed, using deterministic signals: {e}")
+        except Exception as e:
+            log.warning(f"Technical LLM failed unexpectedly: {e}")
+
+    log.info(f"Final signal: {result['composite_signal']} (score={result['signal_score']:.3f}, conf={result['confidence']})")
 
     return {
         "technical_signals": result,

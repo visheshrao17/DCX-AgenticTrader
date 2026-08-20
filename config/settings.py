@@ -20,10 +20,39 @@ class Settings(BaseSettings):
     coindcx_api_secret: str = Field(default="", description="CoinDCX API secret")
 
     # -------------------------------------------------------------------------
-    # LLM Provider (Google Gemini)
+    # LLM Provider
     # -------------------------------------------------------------------------
+    llm_provider: str = Field(
+        default="openrouter",
+        description="LLM provider: 'openrouter', 'gemini', or 'none'",
+    )
+    openrouter_api_key: str = Field(default="", description="OpenRouter API key")
+    llm_candidate_models: str = Field(
+        default="meta-llama/llama-4-maverick:free,google/gemini-2.0-flash-exp:free,openrouter/auto",
+        description="Comma-separated ordered list of candidate model IDs for OpenRouter",
+    )
+
+    # Legacy Gemini (kept for rollback)
     google_api_key: str = Field(default="", description="Google AI API key")
     gemini_model: str = Field(default="gemini-2.0-flash", description="Gemini model name")
+
+    # Per-agent LLM toggles
+    use_llm_technical: bool = Field(
+        default=True,
+        description="Enable LLM synthesis in Technical Analyst agent",
+    )
+    use_llm_sentiment: bool = Field(
+        default=True,
+        description="Enable LLM analysis in Sentiment Researcher agent",
+    )
+    use_llm_risk_explanation: bool = Field(
+        default=True,
+        description="Enable LLM-generated compliance rationale in Risk agent",
+    )
+    use_llm_orchestrator: bool = Field(
+        default=True,
+        description="Enable LLM decision in Strategy Orchestrator",
+    )
 
     # -------------------------------------------------------------------------
     # News & Sentiment (Yahoo Finance — no API key needed)
@@ -82,8 +111,17 @@ class Settings(BaseSettings):
 
     @property
     def has_llm_credentials(self) -> bool:
-        """Check if Google Gemini credentials are configured."""
-        return bool(self.google_api_key)
+        """Check if LLM credentials are configured for the active provider."""
+        if self.llm_provider == "openrouter":
+            return bool(self.openrouter_api_key)
+        elif self.llm_provider == "gemini":
+            return bool(self.google_api_key)
+        return False
+
+    @property
+    def llm_candidate_models_list(self) -> List[str]:
+        """Parse comma-separated candidate models into an ordered list."""
+        return [m.strip() for m in self.llm_candidate_models.split(",") if m.strip()]
 
     model_config = {
         "env_file": ".env",

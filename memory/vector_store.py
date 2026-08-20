@@ -1,12 +1,4 @@
-"""
-DCX-AgenticTrader — Vector Store (ChromaDB)
-
-Manages ChromaDB collections for:
-- trade_memory: Past trade decisions + outcomes for reflection
-- compliance_docs: Indian regulatory documents for RAG
-- market_context: Key market events / news summaries
-"""
-
+import json
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
@@ -22,8 +14,8 @@ class VectorStore:
 
     Usage:
         store = VectorStore()
-        store.store_trade_memory(trade_id, reasoning, outcome)
-        similar = store.recall_similar_trades("BTC dropping after fed meeting", k=3)
+        store.store_trade_memory(trade_id, context, decision, outcome)
+        similar = store.recall_similar_trades_text("BTC dropping after fed meeting", k=3)
     """
 
     def __init__(self, persist_dir: str = CHROMA_PERSIST_DIR):
@@ -36,6 +28,7 @@ class VectorStore:
     def client(self):
         if self._client is None:
             import chromadb
+            # Use default embeddings for trade memory (lightweight)
             self._client = chromadb.PersistentClient(path=self.persist_dir)
             log.info(f"ChromaDB initialized at {self.persist_dir}")
         return self._client
@@ -55,6 +48,9 @@ class VectorStore:
         context: str,
         decision: str,
         outcome: str,
+        rationale: str = "",
+        risk_status: str = "",
+        sentiment: str = "",
         metadata: Optional[Dict] = None,
     ) -> None:
         """
@@ -62,19 +58,34 @@ class VectorStore:
 
         Args:
             trade_id: Unique trade identifier.
-            context: Market context at the time of decision.
-            decision: What action was taken and why.
+            context: Market context at the time of decision (price, tech indicators).
+            decision: What action was taken (e.g. BUY, SELL, HOLD).
             outcome: Result of the trade (PnL, fill, etc.).
+            rationale: The LLM or deterministic reasoning.
+            risk_status: Risk compliance status (PASS/FAIL).
+            sentiment: Overall sentiment composite score/label.
             metadata: Additional metadata dict.
         """
-        collection = self._get_collection("trade_memory")
-        document = f"Context: {context}\nDecision: {decision}\nOutcome: {outcome}"
+        collection = self._get_collection("trade_memory_v2")
+        
+        # Build a richer document for better semantic search and LLM context
+        document = (
+            f"Trade ID: {trade_id}\n"
+            f"Context: {context}\n"
+            f"Sentiment: {sentiment}\n"
+            f"Risk: {risk_status}\n"
+            f"Decision: {decision}\n"
+            f"Rationale: {rationale}\n"
+            f"Outcome: {outcome}"
+        )
 
         meta = metadata or {}
         meta["trade_id"] = trade_id
+        meta["decision"] = decision
+        meta["risk"] = risk_status
 
         collection.upsert(ids=[trade_id], documents=[document], metadatas=[meta])
-        log.debug(f"Stored trade memory: {trade_id}")
+        log.debug(f"Stored enhanced trade memory: {trade_id}")
 
     def recall_similar_trades(self, current_context: str, k: int = 5) -> List[Dict]:
         """
@@ -87,7 +98,7 @@ class VectorStore:
         Returns:
             List of past trade memory dicts.
         """
-        collection = self._get_collection("trade_memory")
+        collection = self._get_collection("trade_memory_v2")
         if collection.count() == 0:
             return []
 
@@ -100,6 +111,20 @@ class VectorStore:
 
         log.debug(f"Recalled {len(memories)} similar trades")
         return memories
+        
+    def recall_similar_trades_text(self, current_context: str, k: int = 3) -> str:
+        """
+        Retrieve past trades and format them as a string for LLM injection.
+        """
+        memories = self.recall_similar_trades(current_context, k)
+        if not memories:
+            return "No similar historical trades found."
+            
+        formatted = []
+        for i, m in enumerate(memories):
+            formatted.append(f"--- Past Trade {i+1} ---\n{m['document']}")
+            
+        return "\n\n".join(formatted)
 
     # =========================================================================
     # Market Context

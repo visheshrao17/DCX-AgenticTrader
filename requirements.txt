@@ -8,6 +8,9 @@ langchain-core>=0.3.0
 langchain-google-genai>=2.1.0
 langchain-community>=0.3.0
 
+# OpenRouter (OpenAI-compatible client)
+openai>=1.40.0
+
 # CoinDCX API
 requests>=2.31.0
 python-socketio[client]>=5.11.0
@@ -24,6 +27,7 @@ feedparser>=6.0.0
 # RAG & Memory
 chromadb>=0.5.0
 langchain-chroma>=0.2.0
+rank-bm25>=0.2.2
 
 # Dashboard
 streamlit>=1.40.0

@@ -12,6 +12,7 @@ from typing import Dict, Any, List
 from datetime import datetime, timezone
 
 import numpy as np
+from pydantic import BaseModel, Field
 
 from config.constants import (
     INDIA_TAX_FLAT_RATE, INDIA_TDS_RATE, INDIA_TDS_THRESHOLD_INR,
@@ -24,8 +25,16 @@ from tools.tax_calculator import calculate_trade_tax
 from memory.trade_store import TradeStore
 from graph.state import TradingState
 from utils.logger import get_agent_logger
+from tools.llm_client import call_llm
+from utils.error_handler import LLMError
 
 log = get_agent_logger("risk")
+
+
+class ComplianceRationale(BaseModel):
+    """Structured output expected from the Risk & Compliance LLM."""
+    rationale: str = Field(description="Natural-language compliance rationale citing specific regulations and risk limits.")
+    regulatory_concerns: List[str] = Field(description="Any specific regulatory concerns identified from the compliance query.")
 
 
 def risk_compliance_agent(state: TradingState) -> Dict[str, Any]:
@@ -151,10 +160,11 @@ def risk_compliance_agent(state: TradingState) -> Dict[str, Any]:
     # 5. Regulatory Compliance Check
     # =========================================================================
 
+    reg_info_text = ""
     # Query RAG for any specific concerns
     try:
-        reg_info = query_compliance.invoke({"question": f"Is trading {pair} compliant in India?"})
-        if reg_info and "not allowed" not in reg_info.lower():
+        reg_info_text = query_compliance.invoke({"question": f"Is trading {pair} compliant in India?"})
+        if reg_info_text and "not allowed" not in reg_info_text.lower():
             compliance_notes.append("Regulatory check: Trading is legal and compliant in India")
         else:
             risk_warnings.append("⚠️ Regulatory concern detected — review before trading")
@@ -163,7 +173,7 @@ def risk_compliance_agent(state: TradingState) -> Dict[str, Any]:
         compliance_notes.append("Regulatory check: Manual verification recommended")
 
     # =========================================================================
-    # Build Result
+    # Build Result (Deterministic)
     # =========================================================================
 
     reasoning = (
@@ -190,7 +200,43 @@ def risk_compliance_agent(state: TradingState) -> Dict[str, Any]:
         "risk_warnings": risk_warnings,
         "compliance_notes": compliance_notes,
         "reasoning": reasoning,
+        "llm_used": False,
     }
+
+    # =========================================================================
+    # 6. LLM Explanation (Does NOT alter PASS/FAIL status)
+    # =========================================================================
+    
+    if settings.use_llm_risk_explanation:
+        try:
+            system_prompt = "You are a Risk & Compliance Officer for an Indian crypto trading firm. Generate a brief compliance rationale based on the provided data."
+            user_prompt = (
+                f"Pair: {pair}\n"
+                f"Status: {compliance_status}\n"
+                f"Warnings: {json.dumps(risk_warnings)}\n"
+                f"Notes: {json.dumps(compliance_notes)}\n"
+                f"Regulatory Context:\n{reg_info_text}\n"
+            )
+            
+            llm_decision = call_llm(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response_model=ComplianceRationale,
+                agent_name="risk",
+                temperature=0.1,
+            )
+            
+            result["llm_compliance_rationale"] = llm_decision.rationale
+            result["reasoning"] = f"[LLM] {llm_decision.rationale} (Deterministic: {reasoning})"
+            if llm_decision.regulatory_concerns:
+                result["compliance_notes"].extend(llm_decision.regulatory_concerns)
+            result["llm_used"] = True
+            log.info("LLM Risk Explanation generated successfully.")
+            
+        except LLMError as e:
+            log.warning(f"Risk LLM failed, using deterministic reasoning: {e}")
+        except Exception as e:
+            log.warning(f"Risk LLM failed unexpectedly: {e}")
 
     log.info(f"Risk: {compliance_status} | Max position: ₹{max_position_value:,.2f} | Warnings: {len(risk_warnings)}")
 
